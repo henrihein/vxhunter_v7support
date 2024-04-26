@@ -29,12 +29,15 @@ def init_firmware():
     # Init Timer
     timer = Timer()
     try:
-        vx_version = askChoice("Choice", "Please choose VxWorks main Version ", ["5.x", "6.x"], "5.x")
+        vx_version = askChoice("Choice", "Please choose VxWorks main Version ", ["5.x", "6.x", "7.x"], "5.x")
         if vx_version == u"5.x":
             vx_version = 5
 
         elif vx_version == u"6.x":
             vx_version = 6
+
+        elif vx_version == u"7.x":
+            vx_version = 7
 
         if vx_version:
             firmware_path = currentProgram.domainFile.getMetadata()['Executable Location']

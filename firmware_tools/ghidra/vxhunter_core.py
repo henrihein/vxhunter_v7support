@@ -49,8 +49,23 @@ vx_6_sym_types = [
     0x41,  # Global Symbols
 ]
 
-need_create_function = [0x04, 0x05]
+# Not used, here for reference. These are from symbol.h, but experimentally, the data in the
+# firmwares contain the values from v6.
+vx_7_sym_types = [
+    # 0x0     # undefined (lowest 8 bits only)
+    #0x01,    # global (external)
+    0x02,     # absolute
+    0x04,     # text 
+    0x08,     # data
+    0x10,     # bss
+    0x20,     # common symbol
+    0x40,     # local
+    0x80	   # Thumb function
+]
 
+def vxh_byte(val):
+    if type(val) is int: return val
+    return ord(val[0])
 
 class VxTarget(object):
     def __init__(self, firmware, vx_version=5, is_big_endian=False, logger=None):
@@ -70,10 +85,15 @@ class VxTarget(object):
         self.load_address = None
         self._firmware = firmware
         self._has_symbol = None
+        self._pointer_size = 4
         if self._vx_version == 5:
             self._symbol_interval = 16
         elif self._vx_version == 6:
             self._symbol_interval = 20
+        elif self._vx_version == 7:
+            self._symbol_interval = 40
+            # Assuming 64 bit for v7
+            self._pointer_size = 8 
         self.start_time = None
         self._performance_status = []
 
@@ -201,7 +221,7 @@ class VxTarget(object):
         """
         if self._vx_version == 5:
             # Check symbol type is valid
-            sym_type = ord(data[14])
+            sym_type = vxh_byte(data[14])
             if sym_type not in vx_5_sym_types:
                 return False
 
@@ -225,7 +245,7 @@ class VxTarget(object):
 
         elif self._vx_version == 6:
             # Check symbol type is valid
-            sym_type = ord(data[18])
+            sym_type = vxh_byte(data[18])
             if sym_type not in vx_6_sym_types:
                 return False
 
@@ -245,6 +265,27 @@ class VxTarget(object):
             # sometime data[8:12] will be '\x00\x00\x00\x00'
             # if data[8:12] == '\x00\x00\x00\x00':
             #     return False
+            return True
+
+        elif self._vx_version == 7:
+            # Check symbol type is valid. Assume 64-bit.
+            sym_type = vxh_byte(data[34])
+            # Reusing v6 symbol types.
+            if sym_type not in vx_6_sym_types:
+                return False
+
+            # symbol should end with '\x00'
+            if data[35] != '\x00':
+                return False
+
+            # Check symbol group is '\x00\x00'
+            if data[32:34] != '\x00\x00':
+                return False
+
+            # symbol_name point should not be zero
+            if data[8:16] == '\x00\x00\x00\x00\x00\x00\x00\x00':
+                return False
+
             return True
 
         return False
@@ -274,6 +315,7 @@ class VxTarget(object):
         self.logger.debug(performance_data)
 
         if self.symbol_table_start:
+            self.logger.info("Found Symbol table at: " + str(self.symbol_table_start))
             self.reset_timer()
             for i in range(self.symbol_table_start, len(self._firmware), self._symbol_interval):
                 check_data = self._firmware[i:i + self._symbol_interval]
@@ -298,6 +340,19 @@ class VxTarget(object):
         self._performance_status.append(performance_data)
         self.logger.debug(performance_data)
 
+    def get_pointer(self, ix):
+        return self._firmware[ix:ix + self._pointer_size]
+
+    def get_name_index(self):
+        if self._vx_version in [5, 6]: return 4
+        if 7 == self._vx_version: return 8
+        raise ValueError("Version unknown")
+
+    def get_addr_index(self):
+        if self._vx_version in [5, 6]: return 8
+        if 7 == self._vx_version: return 16
+        raise ValueError("Version unknown")
+
     def get_symbol_table(self):
         """ get symbol table data.
 
@@ -310,9 +365,9 @@ class VxTarget(object):
             return False
 
         for i in range(self.symbol_table_start, self.symbol_table_end, self._symbol_interval):
-            symbol_name_addr = self._firmware[i + 4:i + 8]
-            symbol_dest_addr = self._firmware[i + 8:i + 12]
-            symbol_flag = ord(self._firmware[i + self._symbol_interval - 2])
+            symbol_name_addr = self.get_pointer(self.get_name_index())
+            symbol_dest_addr = self.get_pointer(self.get_addr_index())
+            symbol_flag = vxh_byte(self._firmware[i + self._symbol_interval - 2])
             if self.is_big_endian:
                 unpack_format = '>I'
             else:
@@ -339,7 +394,7 @@ class VxTarget(object):
         if type(c) is int:
             return 32 <= c <= 126
         elif type(c) is str:
-            return 32 <= ord(c) <= 126
+            return 32 <= vxh_byte(c) <= 126
 
     def _is_func_name(self, string):
         """ Check target string is match function name format.
