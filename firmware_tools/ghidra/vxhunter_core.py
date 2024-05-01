@@ -8,8 +8,10 @@ import time
 default_check_count = 100
 
 known_address = [0x80002000, 0x10000, 0x1000, 0xf2003fe4, 0x100000, 0x107fe0]
+known_address_v7 = [0xFFFFFFFF800FFFC0]
 
 function_name_key_words = ['bzero', 'usrInit', 'bfill']
+offsets = [ 0x7ABF07, 0x55C, 0x7B6208, 0x4CBC20] # 'bzero' string;function code, idleTaskEntry string;code.
 
 # VxWorks 5.5
 vx_5_sym_types = [
@@ -86,6 +88,7 @@ class VxTarget(object):
         self._firmware = firmware
         self._has_symbol = None
         self._pointer_size = 4
+        self._known_address = known_address
         if self._vx_version == 5:
             self._symbol_interval = 16
         elif self._vx_version == 6:
@@ -94,6 +97,7 @@ class VxTarget(object):
             self._symbol_interval = 40
             # Assuming 64 bit for v7
             self._pointer_size = 8 
+            self._known_address = known_address_v7
         self.start_time = None
         self._performance_status = []
 
@@ -180,10 +184,10 @@ class VxTarget(object):
         for i in range(default_check_count):
             check_data_1 = check_data[i * self._symbol_interval:(i + 1) * self._symbol_interval]
             if len(check_data_1) < self._symbol_interval:
-                self.logger.debug("check_data_1 length is too small: {}".format(len(check_data_1)))
+                self.logger.info("End of data or too little data, skipping symbol checks at: {} remaining".format(len(check_data_1)))
                 break
 
-            if self._check_symbol_format_simple(check_data_1) is False:
+            if self._check_symbol_format_simple(i, check_data_1) is False:
                 return False
 
         if self._vx_version == 5:
@@ -213,7 +217,7 @@ class VxTarget(object):
 
         return True
 
-    def _check_symbol_format_simple(self, data):
+    def _check_symbol_format_simple(self, symbol, data):
         """ Check single symbol format is correct.
 
         :param data: single symbol data.
@@ -272,22 +276,27 @@ class VxTarget(object):
             sym_type = vxh_byte(data[34])
             # Reusing v6 symbol types.
             if sym_type not in vx_6_sym_types:
+                self.logger.debug("Unknown Symbol type %u. " % sym_type)
                 return False
 
             # symbol should end with '\x00'
             if data[35] != '\x00':
+                self.logger.debug("Symbol data @%X: last byte is %u, not zero. " % (symbol, vxh_byte(data[35])))
                 return False
 
             # Check symbol group is '\x00\x00'
             if data[32:34] != '\x00\x00':
+                self.logger.debug("Symbol data: group is not zero. ")
                 return False
 
             # symbol_name point should not be zero
             if data[8:16] == '\x00\x00\x00\x00\x00\x00\x00\x00':
+                self.logger.debug("Symbol %u data: symbol name is null. " % symbol)
                 return False
 
             return True
 
+        self.logger.warning("Symbol check: unknown version %u. " % self._vx_version)
         return False
 
     def find_symbol_table(self):
@@ -299,7 +308,7 @@ class VxTarget(object):
         for offset in range(len(self._firmware) - self._symbol_interval):
             if self.symbol_table_start is None:
                 # Get first data valid the symbol_format
-                if not self._check_symbol_format_simple(self._firmware[offset: offset + self._symbol_interval]):
+                if not self._check_symbol_format_simple(offset, self._firmware[offset: offset + self._symbol_interval]):
                     continue
 
                 elif self._check_symbol_format(offset):
@@ -324,7 +333,7 @@ class VxTarget(object):
                     self.logger.debug("check_data length is too small: {}".format(check_data))
                     break
 
-                if self._check_symbol_format_simple(check_data):
+                if self._check_symbol_format_simple(i, check_data):
                     self.symbol_table_end = i + self._symbol_interval
                     self.logger.debug("self.symbol_table_end: {:010x}".format(self.symbol_table_end))
 
@@ -353,6 +362,15 @@ class VxTarget(object):
         if 7 == self._vx_version: return 16
         raise ValueError("Version unknown")
 
+    def get_unpack_pointer_format(self):
+        if self.is_big_endian:
+            prefix = '>'
+        else:
+            prefix = '<'
+        if 4 == self._pointer_size: return prefix + "I"
+        if 8 == self._pointer_size: return prefix + "Q"
+        raise ValueError("Pointer size unknown")
+
     def get_symbol_table(self):
         """ get symbol table data.
 
@@ -360,28 +378,29 @@ class VxTarget(object):
         """
         if self.symbol_table_start and self.symbol_table_end:
             self._check_vxworks_endian()
-
         else:
             return False
 
+        firstSymbolNamePointer = 0x7FFFFFFF00000000
+        lastSymbolNamePointer = 0
         for i in range(self.symbol_table_start, self.symbol_table_end, self._symbol_interval):
-            symbol_name_addr = self.get_pointer(self.get_name_index())
-            symbol_dest_addr = self.get_pointer(self.get_addr_index())
+            symbol_name_addr = self.get_pointer(i + self.get_name_index())
+            symbol_dest_addr = self.get_pointer(i + self.get_addr_index())
             symbol_flag = vxh_byte(self._firmware[i + self._symbol_interval - 2])
-            if self.is_big_endian:
-                unpack_format = '>I'
-            else:
-                unpack_format = '<I'
+            unpack_format = self.get_unpack_pointer_format()
             symbol_name_addr = int(struct.unpack(unpack_format, symbol_name_addr)[0])
             symbol_dest_addr = int(struct.unpack(unpack_format, symbol_dest_addr)[0])
             self.logger.debug("symbol_name_addr: {}; symbol_dest_addr: {}".format(symbol_name_addr, symbol_dest_addr))
+            if symbol_name_addr < firstSymbolNamePointer: firstSymbolNamePointer = symbol_name_addr
+            if symbol_name_addr > lastSymbolNamePointer: lastSymbolNamePointer = symbol_name_addr
             self._symbol_table.append({'symbol_name_addr': symbol_name_addr, 'symbol_name_length': None, 'symbol_dest_addr': symbol_dest_addr, 'symbol_flag': symbol_flag, 'offset': i})
         self.logger.debug("len(self._symbol_table): %s".format(len(self._symbol_table)))
+        self.logger.info("First symbol pointer: %X. Last (highest) symbol pointer: %X." % (firstSymbolNamePointer, lastSymbolNamePointer))
         self._symbol_table = sorted(self._symbol_table, key=lambda x: x['symbol_name_addr'])
         for i in range(len(self._symbol_table) - 1):
             self._symbol_table[i]['symbol_name_length'] = self._symbol_table[i + 1]['symbol_name_addr'] - \
                                                           self._symbol_table[i]['symbol_name_addr']
-        self.logger.debug("len(self._symbol_table): {}".format(len(self._symbol_table)))
+        self.logger.info("len(self._symbol_table): {}".format(len(self._symbol_table)))
         return True
 
     @staticmethod
@@ -590,7 +609,6 @@ class VxTarget(object):
                 count = default_check_count
                 self.logger.debug("Length of symbol table, {}, is greater than default. Setting iteration count to default, {}.".format(len(self._symbol_table), count))
             for i in range(count):
-
                 if (func_index >= len(self._symbol_table)) or (str_index >= len(self._string_table)):
                     self.logger.debug("_check_fix False: func_index greater than length of _symbol_table, or str_index greater than length of _string_table.")
                     return False
@@ -661,12 +679,14 @@ class VxTarget(object):
 
         # TODO: Need improve performance
         self.reset_timer()
-        self.logger.info("Starting loading address analysis")
+        self.logger.info("Starting loading address analysis using %u strings" % len(self._string_table))
+        name_check_count = 0
         for str_index in range(len(self._string_table)):
             for func_index in range(len(self._symbol_table)):
                 self.logger.debug("self._string_table[str_index]['length']: {}".format(self._string_table[str_index]['length']))
                 self.logger.debug("self._symbol_table[func_index]['symbol_name_length']: {}".format(self._symbol_table[func_index]['symbol_name_length']))
                 if self._string_table[str_index]['length'] == self._symbol_table[func_index]['symbol_name_length']:
+                    name_check_count += 1
                     if self._check_fix(func_index, str_index) is True:
                         self.logger.debug("self._symbol_table[func_index]['symbol_name_addr']: {}".format(self._symbol_table[func_index]['symbol_name_addr']))
                         self.logger.debug("self._string_table[str_index]['address']: %s" % self._string_table[str_index]['address'])
@@ -682,28 +702,29 @@ class VxTarget(object):
                 else:
                     continue
 
-        self.logger.error("We didn't find load address in this firmware, sorry!")
+        self.logger.error("We didn't find load address in this firmware, sorry! Checked %u symbols" % name_check_count)
         performance_data = "Analyze loading address takes {:.3f} seconds".format(self.get_timer())
         self._performance_status.append(performance_data)
         self.logger.debug(performance_data)
 
     def _check_load_address(self, address):
         """
-
-        :param address:
-        :return:
+        :param address: candidate load address
+        :return: True if the load address looks correct
         """
         if not self._has_symbol:
+            self.logger.info("No symbol table. Cannot check load address.")
             return False
         if len(self._symbol_table) > default_check_count:
             self.logger.debug("Length of symbol table greater than default. Setting iteration count to default of {}.".format(default_check_count))
             count = default_check_count
         else:
             count = len(self._symbol_table)
-        self.logger.debug("symbol_table length is {}".format(count))
+        self.logger.info("symbol_table length is {}".format(count))
         for i in range(count):
             offset = self._symbol_table[i]['symbol_name_addr'] - address
             if offset <= 0:
+                self.logger.info("Address candidate %X greater than symbol address %X" % (address, self._symbol_table[i]['symbol_name_addr']))
                 return False
             # TODO: Need improve, currently use string point to check.
             string, str_start_address, str_end_address = self._get_next_string_data(offset)
@@ -721,7 +742,7 @@ class VxTarget(object):
         if self._has_symbol is False:
             return None
         self.logger.debug("has_symbol: {}".format(self._has_symbol))
-        for address in known_address:
+        for address in self._known_address:
             if self._check_load_address(address):
                 self.load_address = address
                 self._firmware_info["load_address"] = self.load_address

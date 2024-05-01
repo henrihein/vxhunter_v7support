@@ -7,6 +7,7 @@
 # coding=utf-8
 import logging
 import time
+import traceback
 from vxhunter_core import VxTarget
 from vxhunter_utility.common import *
 from vxhunter_utility.symbol import add_symbol, fix_symbol_table_structs
@@ -120,6 +121,7 @@ def init_firmware():
 
     except Exception as err:
         print(err)
+        print(traceback.format_exc())
 
 
 if __name__ == '__main__':
