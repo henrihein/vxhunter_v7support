@@ -46,6 +46,10 @@ demangler = GnuDemangler()
 listing = currentProgram.getListing()
 can_demangle = demangler.canDemangle(currentProgram)
 
+# Java or Ghidra (not sure which) throws an exception if address is an unsigned long.
+# Converting to string works.
+def vx_toAddr(address):
+    return toAddr(str(address))
 
 class Timer(object):
     def __init__(self):

@@ -59,7 +59,7 @@ def init_firmware():
                 # Rebase_image
                 timer.reset()
                 target_block = currentProgram.memory.blocks[0]
-                address = toAddr(load_address)
+                address = vx_toAddr(load_address)
                 logger.debug("Rebasing. target_block: {}; load_address: {}".format(target_block, address))
                 currentProgram.memory.moveBlock(target_block, address, TaskMonitor.DUMMY)
                 rebase_time = timer.get_timer()
@@ -70,7 +70,7 @@ def init_firmware():
                 logger.debug("Creating symbol table.")
                 symbol_table_start = target.symbol_table_start + target.load_address
                 symbol_table_end = target.symbol_table_end + target.load_address
-                fix_symbol_table_structs(symbol_table_start, symbol_table_end, vx_version)
+                fix_symbol_table_structs(symbol_table_start, symbol_table_end, firmware[target.symbol_table_start:target.symbol_table_end], vx_version)
                 fix_symbol_table_time = timer.get_timer()
                 logger.info("Creating symbol table takes {:.3f} seconds".format(fix_symbol_table_time))
 

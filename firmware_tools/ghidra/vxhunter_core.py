@@ -3,6 +3,7 @@ import logging
 import re
 import struct
 import time
+import binascii
 
 
 default_check_count = 100
@@ -153,18 +154,22 @@ class VxTarget(object):
 
         :return:
         """
-        data1 = self._firmware[self.symbol_table_start + 4:self.symbol_table_start + 4 + self._symbol_interval]
-        data2 = self._firmware[self.symbol_table_start + 4 + self._symbol_interval:self.symbol_table_start +
-                                                                                   4 + self._symbol_interval * 2]
-        if data1[0:2] == data2[0:2]:
-            self.logger.info("VxWorks endian: Big endian.")
-            self.is_big_endian = True
-        elif data1[2:4] == data2[2:4]:
-            self.logger.info("VxWorks endian: Little endian.")
+        if 7 == self._vx_version:
+            # Assume little-endian for all v7. Instructions are always little-endian anyway.
             self.is_big_endian = False
         else:
-            self.logger.info("VxWorks endian unknown. Assuming little endian.")
-            self.is_big_endian = False
+            data1 = self._firmware[self.symbol_table_start + 4:self.symbol_table_start + 4 + self._symbol_interval]
+            data2 = self._firmware[self.symbol_table_start + 4 + self._symbol_interval:self.symbol_table_start +
+                                                                                       4 + self._symbol_interval * 2]
+            if data1[0:2] == data2[0:2]:
+                self.logger.info("VxWorks endian: Big endian.")
+                self.is_big_endian = True
+            elif data1[2:4] == data2[2:4]:
+                self.logger.info("VxWorks endian: Little endian.")
+                self.is_big_endian = False
+            else:
+                self.logger.info("VxWorks endian unknown. Assuming little endian.")
+                self.is_big_endian = False
 
     def _check_symbol_format(self, offset):
         """ Check offset is symbol table.
@@ -693,7 +698,7 @@ class VxTarget(object):
                         self.load_address = self._symbol_table[func_index]['symbol_name_addr'] - \
                                             self._string_table[str_index]['address']
                         self._firmware_info["load_address"] = self.load_address
-                        self.logger.info('load address is {:010x}'.format(self.load_address))
+                        self.logger.info('load address is {:016x} (type is {})'.format(self.load_address, str(type(self.load_address))))
                         performance_data = "Analyze loading address takes {:.3f} seconds".format(
                             self.get_timer())
                         self._performance_status.append(performance_data)
@@ -724,14 +729,14 @@ class VxTarget(object):
         for i in range(count):
             offset = self._symbol_table[i]['symbol_name_addr'] - address
             if offset <= 0:
-                self.logger.info("Address candidate %X greater than symbol address %X" % (address, self._symbol_table[i]['symbol_name_addr']))
+                self.logger.info("Address candidate %X greater than symbol name %X @%X" % (address, self._symbol_table[i]['symbol_name_addr'], self._symbol_table[i]['offset']))
                 return False
             # TODO: Need improve, currently use string point to check.
             string, str_start_address, str_end_address = self._get_next_string_data(offset)
             if str_start_address != offset:
                 self.logger.info("String {} at offset {} didn't match symbol table.".format(string, offset))
                 return False
-        self.logger.info('Load address is {:010x}'.format(address))
+        self.logger.info('Load address is {:016x} (type is {})'.format(address, str(type(address))))
         return True
 
     def quick_test(self):
@@ -748,7 +753,7 @@ class VxTarget(object):
                 self._firmware_info["load_address"] = self.load_address
                 return self.load_address
             else:
-                self.logger.info('Load address is not {:010x}'.format(address))
+                self.logger.info('Load address is {:016x} (type is {})'.format(address, str(type(address))))
 
     def cleanup(self):
         """ Clean up variables.

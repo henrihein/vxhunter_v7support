@@ -318,11 +318,11 @@ class FunctionAnalyzer(object):
             self.logger.debug("parm_value: {}".format(parm_value))
             parm_data = None
             if parm_value:
-                if is_address_in_current_program(toAddr(parm_value)):
-                    if getDataAt(toAddr(parm_value)):
-                        parm_data = getDataAt(toAddr(parm_value))
-                    elif getInstructionAt(toAddr(parm_value)):
-                        parm_data = getFunctionAt(toAddr(parm_value))
+                if is_address_in_current_program(vx_toAddr(parm_value)):
+                    if getDataAt(vx_toAddr(parm_value)):
+                        parm_data = getDataAt(vx_toAddr(parm_value))
+                    elif getInstructionAt(vx_toAddr(parm_value)):
+                        parm_data = getFunctionAt(vx_toAddr(parm_value))
 
             parms_value["parm_{}".format(i)] = {'parm_value': parm_value,
                                                 'parm_data': parm_data

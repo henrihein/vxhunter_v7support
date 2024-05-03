@@ -11,6 +11,7 @@ from common import demangler, DemangledException
 # Functions from common
 from common import is_address_in_current_program
 from common import get_logger
+from common import vx_toAddr
 
 from ghidra.program.model.util import CodeUnitInsertionException
 from ghidra.program.model.symbol import RefType, SourceType
@@ -222,11 +223,11 @@ def demangled_symbol(symbol_string):
 
 
 def add_symbol(symbol_name, symbol_name_address, symbol_address, symbol_type):
-    symbol_address = toAddr(symbol_address)
+    symbol_address = vx_toAddr(symbol_address)
     symbol_name_string = symbol_name
     # Get symbol_name
     if symbol_name_address:
-        symbol_name_address = toAddr(symbol_name_address)
+        symbol_name_address = vx_toAddr(symbol_name_address)
         logger.debug("Have symbol name {} at address {}.".format(symbol_name_string, symbol_name_address))
 
         if getDataAt(symbol_name_address):
@@ -301,22 +302,32 @@ def add_symbol(symbol_name, symbol_name_address, symbol_address, symbol_type):
         logger.error("Create symbol failed: symbol_name: {}, symbol_name_address: {}, symbol_address: {}, symbol_type: {} reason: {}".format(symbol_name_string, symbol_name_address, symbol_address, symbol_type, err))
 
 
-def fix_symbol_table_structs(symbol_table_start, symbol_table_end, vx_version):
+def fix_symbol_table_structs(symbol_table_start, symbol_table_end, symbol_table_data, vx_version):
     symbol_interval = 16
     dt = vx_5_symtbl_dt
     if vx_version == 6:
         symbol_interval = 20
         dt = vx_6_symtbl_dt
+    elif vx_version == 7:
+        symbol_interval = 40
+        dt = vx_7_symtbl_dt
 
     # Create symbol table structs
-    symbol_table_start_addr = toAddr(symbol_table_start)
-    symbol_table_end_addr = toAddr(symbol_table_end)
+    symbol_table_start_addr = vx_toAddr(symbol_table_start)
+    symbol_table_end_addr = vx_toAddr(symbol_table_end)
 
     sym_length = (symbol_table_end - symbol_table_start) // symbol_interval
     logger.debug("Fixing symbol table with start at {} and end at {} with length {}.".format(symbol_table_start_addr, symbol_table_end_addr, sym_length))
     createLabel(symbol_table_start_addr, "vxSymTbl", True)
     clearListing(symbol_table_start_addr, symbol_table_end_addr)
     vx_symbol_array_data_type = ArrayDataType(dt, sym_length, dt.getLength())
+    if True:
+        block = getMemoryBlock(symbol_table_start_addr)
+        if block:
+            logger.info('Attempting to create data at block: %s, start: %s, end: %s' % (block.getName(), block.getStart().toString(), block.getEnd().toString()))
+        else:
+            logger.info("No block at %X, creating new w/%X bytes" % (symbol_table_start, len(symbol_table_data)))
+            createMemoryBlock("vxSymbolTable", symbol_table_start_addr, symbol_table_data, False)
     createData(symbol_table_start_addr, vx_symbol_array_data_type)
 
 
@@ -356,6 +367,9 @@ def fix_symbol_by_chains(head, tail, vx_version):
     if vx_version == 6:
         symbol_interval = 20
         dt = vx_6_symtbl_dt
+    elif vx_version == 7:
+        symbol_interval = 40
+        dt = vx_7_symtbl_dt
     ea = head
     while True:
         prev_symbol_addr = toAddr(getInt(ea))

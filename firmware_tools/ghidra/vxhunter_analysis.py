@@ -42,9 +42,9 @@ class VxAnalyzer(object):
                 bss_start_address = call_parms['parms']['parm_1']['parm_value']
                 self.logger.debug("bss_start_address: {}".format(bss_start_address))
                 try:
-                    if getDataAt(toAddr(bss_start_address)).isPointer():
+                    if getDataAt(vx_toAddr(bss_start_address)).isPointer():
                         self.logger.debug("bzero parm_1 is pointer")
-                        bss_start_address = getDataAt(toAddr(bss_start_address)).getValue().offset
+                        bss_start_address = getDataAt(vx_toAddr(bss_start_address)).getValue().offset
                         self.logger.debug("Real bss_start_address: {}".format(bss_start_address))
 
                 except BaseException as err:
@@ -61,9 +61,9 @@ class VxAnalyzer(object):
                 self.report.append("bss_length: {}".format(hex(bss_length)))
                 self.logger.info("bss_end_address: {}".format(hex(bss_start_address + bss_length - 1)))
                 self.logger.info("bss_length: {}".format(hex(bss_length)))
-                if not is_address_in_current_program(toAddr(bss_start_address)):
+                if not is_address_in_current_program(vx_toAddr(bss_start_address)):
                     self.report.append("bss block not in current program, adding...")
-                    if create_initialized_block(block_name=".bss", start_address=toAddr(bss_start_address),
+                    if create_initialized_block(block_name=".bss", start_address=vx_toAddr(bss_start_address),
                                                 length=bss_length):
                         self.logger.info("bss block created")
                     else:

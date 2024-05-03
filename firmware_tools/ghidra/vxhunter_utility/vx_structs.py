@@ -425,3 +425,12 @@ vx_6_symtbl_dt.replaceAtOffset(0x0c, unsigned_int_type, 4, "symRef", "moduleId o
 vx_6_symtbl_dt.replaceAtOffset(0x10, short_data_type, 4, "symGroup", "")
 vx_6_symtbl_dt.replaceAtOffset(0x12, vx_6_sym_enum, 1, "symType", "")
 vx_6_symtbl_dt.replaceAtOffset(0x13, byte_data_type, 1, "End", "")
+
+vx_7_symtbl_dt = StructureDataType("VX_7_SYMBOL_IN_TBL", 0x28)
+vx_7_symtbl_dt.replaceAtOffset(0, unsigned_int_type, 8, "symHashNode", "")
+vx_7_symtbl_dt.replaceAtOffset(8, char_ptr_type, 8, "symNamePtr", "")
+vx_7_symtbl_dt.replaceAtOffset(0x10, void_ptr_type, 8, "symPrt", "")
+vx_7_symtbl_dt.replaceAtOffset(0x18, unsigned_long_type, 8, "symRef", "moduleId of module, or predefined SYMREF")
+vx_7_symtbl_dt.replaceAtOffset(0x20, short_data_type, 4, "symGroup", "")
+vx_7_symtbl_dt.replaceAtOffset(0x24, vx_6_sym_enum, 1, "symType", "")
+vx_7_symtbl_dt.replaceAtOffset(0x25, byte_data_type, 1, "End", "")

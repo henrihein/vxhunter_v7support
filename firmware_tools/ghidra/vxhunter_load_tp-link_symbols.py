@@ -7,6 +7,7 @@
 # coding=utf-8
 import logging
 import struct
+from vxhunter_utility.common import vx_toAddr
 from vxhunter_utility.symbol import *
 from ghidra.util.task import TaskMonitor
 
@@ -48,7 +49,7 @@ def load_symbols(file_data, is_big_endian=True):
             load_address = symbol_address
             target_block = currentProgram.memory.blocks[0]
             print("target_block: %s" % target_block)
-            address = toAddr(load_address)
+            address = vx_toAddr(load_address)
             print("address: %s" % address)
             currentProgram.memory.moveBlock(target_block, address, TaskMonitor.DUMMY)
 
