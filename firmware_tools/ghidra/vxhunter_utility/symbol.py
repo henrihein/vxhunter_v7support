@@ -2,6 +2,7 @@
 import string
 import struct
 import sys
+import traceback
 # Handle Java Exception
 import java.lang.Exception
 # Constants from common
@@ -27,6 +28,7 @@ logger = get_logger(__name__)
 function_name_key_words = ['bzero', 'usrInit', 'bfill']
 
 need_create_function = [0x04, 0x05]
+invalid_symbol_list = []
 
 # Prepare VxWorks symbol types
 
@@ -223,6 +225,9 @@ def demangled_symbol(symbol_string):
 
 
 def add_symbol(symbol_name, symbol_name_address, symbol_address, symbol_type):
+    if 0 == symbol_type:
+        invalid_symbol_list.append(symbol_name)
+        return
     symbol_address = vx_toAddr(symbol_address)
     symbol_name_string = symbol_name
     # Get symbol_name
@@ -236,7 +241,6 @@ def add_symbol(symbol_name, symbol_name_address, symbol_address, symbol_type):
         else:
             logger.debug("No data detected at {}. Moving on...".format(symbol_address))
 
-
         try:
             symbol_name_string = createAsciiString(symbol_name_address).getValue()
             logger.debug("Created ascii string {} at {}.".format(symbol_name_string, symbol_name_address))
@@ -245,7 +249,6 @@ def add_symbol(symbol_name, symbol_name_address, symbol_address, symbol_type):
         except BaseException as err:
             logger.error("Failed to create ascii string for symbol named {} at {}: {}; returning.".format(symbol_name, symbol_name_address, err))
             return
-
 
     if getInstructionAt(symbol_address):
         logger.debug("Instruction detected at {}; removing to make room for symbol {}".format(symbol_address, symbol_name))
@@ -257,7 +260,7 @@ def add_symbol(symbol_name, symbol_name_address, symbol_address, symbol_type):
     try:
         # Demangle symName
         sym_demangled_name = demangled_symbol(symbol_name_string)
-
+        logger.info("Building symbol '%s', type %u" % (sym_demangled_name, symbol_type))
         if symbol_name_string and (symbol_type in need_create_function):
             logger.debug("Start disassemble function {} at address {}".format(symbol_name_string, symbol_address.toString()))
             disassemble(symbol_address)
@@ -293,13 +296,18 @@ def add_symbol(symbol_name, symbol_name_address, symbol_address, symbol_type):
                 logger.debug('Function for symbol {} was None. In createFunction, one or more functions overlapped the specified address set.'.format(sym_demangled_name))
 
         else:
+            logger.info("Calling createLabel for '%s'" % symbol_name_string)
             createLabel(symbol_address, symbol_name_string, True)
             if sym_demangled_name:
                 codeUnit = listing.getCodeUnitAt(symbol_address)
-                codeUnit.setComment(codeUnit.PLATE_COMMENT, sym_demangled_name)
+                if codeUnit:
+                    codeUnit.setComment(codeUnit.PLATE_COMMENT, sym_demangled_name)
+                else:
+                    logger.warning("Failed to create code unit for symbol '{}' at {}".format(symbol_name_string, symbol_name_address, symbol_address))
 
     except Exception as err:
         logger.error("Create symbol failed: symbol_name: {}, symbol_name_address: {}, symbol_address: {}, symbol_type: {} reason: {}".format(symbol_name_string, symbol_name_address, symbol_address, symbol_type, err))
+        logger.error("Trace: " + traceback.format_exc())
 
 
 def fix_symbol_table_structs(symbol_table_start, symbol_table_end, symbol_table_data, vx_version):
@@ -363,19 +371,26 @@ def get_function(function_name, function_prefix="_"):
 
 def fix_symbol_by_chains(head, tail, vx_version):
     symbol_interval = 0x10
+    symbol_type_ix = 0xE
+    symbol_name_ix = 0x4
+    symbol_ptr_ix = 0x8
     dt = vx_5_symtbl_dt
     if vx_version == 6:
         symbol_interval = 20
+        symbol_type_ix = 18
         dt = vx_6_symtbl_dt
     elif vx_version == 7:
         symbol_interval = 40
+        symbol_type_ix = 0x24
         dt = vx_7_symtbl_dt
+        symbol_name_ix = 0x8
+        symbol_ptr_ix = 0x10
     ea = head
     while True:
         prev_symbol_addr = toAddr(getInt(ea))
-        symbol_name_address = getInt(ea.add(0x04))
-        symbol_dest_address = getInt(ea.add(0x08))
-        symbol_type = getByte(ea.add(symbol_interval - 2))
+        symbol_name_address = getInt(ea.add(symbol_name_ix))
+        symbol_dest_address = getInt(ea.add(symbol_ptr_ix))
+        symbol_type = getByte(ea.add(symbol_type_ix))
         create_struct(ea, dt)
         # Using symbol_address as default symbol_name.
         symbol_name = "0x{:08X}".format(symbol_dest_address)
@@ -386,6 +401,10 @@ def fix_symbol_by_chains(head, tail, vx_version):
 
         ea = prev_symbol_addr
 
+    if 0 < len(invalid_symbol_list):
+        logger.warning("'%d' symbols invalid. Some of them:" % len(invalid_symbol_list))
+        for ix in range(0, min(15, len(invalid_symbol_list))):
+            logger.warning("  '%s' invalid type" % invalid_symbol_list[ix])
     return
 
 

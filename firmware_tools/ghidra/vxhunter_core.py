@@ -399,13 +399,12 @@ class VxTarget(object):
             if symbol_name_addr < firstSymbolNamePointer: firstSymbolNamePointer = symbol_name_addr
             if symbol_name_addr > lastSymbolNamePointer: lastSymbolNamePointer = symbol_name_addr
             self._symbol_table.append({'symbol_name_addr': symbol_name_addr, 'symbol_name_length': None, 'symbol_dest_addr': symbol_dest_addr, 'symbol_flag': symbol_flag, 'offset': i})
-        self.logger.debug("len(self._symbol_table): %s".format(len(self._symbol_table)))
-        self.logger.info("First symbol pointer: %X. Last (highest) symbol pointer: %X." % (firstSymbolNamePointer, lastSymbolNamePointer))
+        self.logger.info("Added %u symbols" % len(self._symbol_table))
+        self.logger.debug("First symbol pointer: %X. Last (highest) symbol pointer: %X." % (firstSymbolNamePointer, lastSymbolNamePointer))
         self._symbol_table = sorted(self._symbol_table, key=lambda x: x['symbol_name_addr'])
         for i in range(len(self._symbol_table) - 1):
             self._symbol_table[i]['symbol_name_length'] = self._symbol_table[i + 1]['symbol_name_addr'] - \
                                                           self._symbol_table[i]['symbol_name_addr']
-        self.logger.info("len(self._symbol_table): {}".format(len(self._symbol_table)))
         return True
 
     @staticmethod
@@ -725,7 +724,7 @@ class VxTarget(object):
             count = default_check_count
         else:
             count = len(self._symbol_table)
-        self.logger.info("symbol_table length is {}".format(count))
+        self.logger.info("Checking address {} against {} symbols".format(address, count))
         for i in range(count):
             offset = self._symbol_table[i]['symbol_name_addr'] - address
             if offset <= 0:
@@ -736,7 +735,7 @@ class VxTarget(object):
             if str_start_address != offset:
                 self.logger.info("String {} at offset {} didn't match symbol table.".format(string, offset))
                 return False
-        self.logger.info('Load address is {:016x} (type is {})'.format(address, str(type(address))))
+        self.logger.debug('Load address is {:016x}'.format(address))
         return True
 
     def quick_test(self):
